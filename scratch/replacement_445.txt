@@ -1,0 +1,236 @@
+  // Admin: Get all registrations (optionally filtered by level)
+  app.get('/api/admin/registrations', (req: Request, res: Response) => {
+    const { level } = req.query;
+    let list = registrationsStore;
+    if (level && typeof level === 'string') {
+      list = list.filter(r => r.studentLevel.includes(level));
+    }
+    return res.json(list);
+  });
+
+  // =====================================================================
+  // CURRICULUM & ELIGIBILITY APIs
+  // =====================================================================
+
+  // GET all courses in curriculum (admin can browse)
+  app.get('/api/curriculum', (req: Request, res: Response) => {
+    const { level, semester, dept } = req.query;
+    let courses = CURRICULUM_DATABASE;
+    if (level) courses = courses.filter(c => c.level === parseInt(String(level), 10));
+    if (semester) courses = courses.filter(c => c.semester === parseInt(String(semester), 10));
+    if (dept && typeof dept === 'string') courses = courses.filter(c => c.departments.includes(dept as any));
+    return res.json(courses);
+  });
+
+  // GET a student's eligible courses for registration
+  // This checks prerequisites against their passed courses automatically
+  app.get('/api/registration/eligible', (req: Request, res: Response) => {
+    const { seatNumber, semester } = req.query;
+    if (!seatNumber) return res.status(400).json({ error: 'رقم الجلوس مطلوب' });
+
+    const student = studentsStore.find(s => s.seatNumber === String(seatNumber));
+    if (!student) return res.status(404).json({ error: 'الطالب غير موجود' });
+
+    const levelNum = getLevelNumber(student.level) as 1 | 2 | 3 | 4;
+    const deptCode = getDeptCode(student.department);
+
+    // Get passed course codes (grade not F or راسب)
+    const passedCodes = student.courses
+      .filter(c => c.status === 'ناجح' || c.grade !== 'F')
+      .map(c => c.code);
+
+    // Also add currently registered courses
+    const registeredCodes = registrationsStore
+      .filter(r => r.studentSeat === String(seatNumber))
+      .map(r => r.courseCode);
+
+    // Determine which semester (1=odd, 2=even) — use query param or auto-detect
+    const semesterPart = semester ? (parseInt(String(semester), 10) as 1 | 2) : 1;
+
+    const eligibleList = getEligibleCourses(levelNum, semesterPart, deptCode, passedCodes);
+
+    // Apply student overrides (admin manual lock/unlock)
+    const overrides = studentOverridesStore.filter(o => o.studentSeat === String(seatNumber));
+
+    const result = eligibleList.map(item => {
+      const override = overrides.find(o => o.courseCode === item.course.code);
+      let eligible = item.eligible;
+      let lockReason: string | null = null;
+
+      if (override?.action === 'lock') {
+        eligible = false;
+        lockReason = `محظور إدارياً: ${override.reason}`;
+      } else if (override?.action === 'unlock') {
+        eligible = true;
+        lockReason = null;
+      }
+
+      // Check if already registered
+      const alreadyRegistered = registeredCodes.includes(item.course.code);
+
+      // Get available slots count for this course
+      const availableSlots = courseSlotsStore.filter(
+        s => s.courseCode === item.course.code && s.level === student.level && s.enrolledCount < s.capacity
+      ).length;
+
+      return {
+        course: item.course,
+        eligible,
+        missingPrereqs: override?.action === 'unlock' ? [] : item.missingPrereqs.map(code => {
+          const c = CURRICULUM_DATABASE.find(x => x.code === code);
+          return { code, nameAr: c?.nameAr || code };
+        }),
+        lockReason,
+        alreadyRegistered,
+        availableSlots,
+        hasOverride: !!override,
+        overrideAction: override?.action
+      };
+    });
+
+    return res.json({
+      student: { name: student.name, level: student.level, department: student.department },
+      levelNum,
+      deptCode,
+      semesterPart,
+      courses: result
+    });
+  });
+
+  // Admin: Get eligible courses for any student (for admin view)
+  app.get('/api/admin/student-eligibility/:seatNumber', (req: Request, res: Response) => {
+    const { seatNumber } = req.params;
+    const { semester } = req.query;
+
+    const student = studentsStore.find(s => s.seatNumber === seatNumber);
+    if (!student) return res.status(404).json({ error: 'الطالب غير موجود' });
+
+    const levelNum = getLevelNumber(student.level) as 1 | 2 | 3 | 4;
+    const deptCode = getDeptCode(student.department);
+    const passedCodes = student.courses.filter(c => c.status === 'ناجح').map(c => c.code);
+    const semPart = semester ? (parseInt(String(semester), 10) as 1 | 2) : 1;
+
+    const eligibleList = getEligibleCourses(levelNum, semPart, deptCode, passedCodes);
+    const overrides = studentOverridesStore.filter(o => o.studentSeat === seatNumber);
+
+    const result = eligibleList.map(item => {
+      const override = overrides.find(o => o.courseCode === item.course.code);
+      let eligible = item.eligible;
+      let lockReason: string | null = null;
+      if (override?.action === 'lock') { eligible = false; lockReason = override.reason; }
+      else if (override?.action === 'unlock') { eligible = true; }
+      return { course: item.course, eligible, missingPrereqs: item.missingPrereqs, lockReason, hasOverride: !!override, overrideAction: override?.action };
+    });
+
+    return res.json({ student, levelNum, deptCode, courses: result, overrides });
+  });
+
+  // Admin: Set manual override for a student's course (lock or unlock)
+  app.post('/api/admin/student-override', (req: Request, res: Response) => {
+    const { studentSeat, courseCode, action, reason } = req.body;
+    if (!studentSeat || !courseCode || !action || !['lock','unlock','remove'].includes(action)) {
+      return res.status(400).json({ error: 'بيانات غير كاملة: رقم الجلوس، كود المقرر، الإجراء (lock/unlock/remove) مطلوبة' });
+    }
+
+    // Remove existing override for this student+course
+    studentOverridesStore = studentOverridesStore.filter(
+      o => !(o.studentSeat === String(studentSeat) && o.courseCode === String(courseCode))
+    );
+
+    if (action !== 'remove') {
+      studentOverridesStore.push({
+        studentSeat: String(studentSeat),
+        courseCode: String(courseCode),
+        action: action as 'lock' | 'unlock',
+        reason: reason || (action === 'lock' ? 'قرار إداري' : 'استثناء إداري'),
+        overriddenAt: new Date().toLocaleString('ar-EG')
+      });
+    }
+
+    const actionLabel = action === 'lock' ? 'قفل' : action === 'unlock' ? 'فتح' : 'إزالة تعديل';
+    return res.json({ success: true, message: `تم ${actionLabel} مقرر ${courseCode} للطالب ${studentSeat} بنجاح` });
+  });
+
+  // Admin: Get all overrides
+  app.get('/api/admin/overrides', (req: Request, res: Response) => {
+    const { seatNumber } = req.query;
+    let list = studentOverridesStore;
+    if (seatNumber) list = list.filter(o => o.studentSeat === String(seatNumber));
+    return res.json(list);
+  });
+
+  // Updated slot registration: check eligibility automatically
+  app.post('/api/registration/register-smart', (req: Request, res: Response) => {
+    const { studentSeat, slotId } = req.body;
+    if (!studentSeat || !slotId) return res.status(400).json({ error: 'رقم الجلوس ومعرف الشعبة مطلوبان' });
+
+    const student = studentsStore.find(s => s.seatNumber === String(studentSeat));
+    if (!student) return res.status(404).json({ error: 'الطالب غير موجود' });
+
+    const slot = courseSlotsStore.find(s => s.id === slotId);
+    if (!slot) return res.status(404).json({ error: 'الشعبة غير موجودة' });
+
+    // Check registration is open
+    if (!registrationStatus[slot.level]) {
+      return res.status(403).json({ error: `التسجيل لـ ${slot.level} غير مفتوح حالياً` });
+    }
+
+    // Check capacity
+    if (slot.enrolledCount >= slot.capacity) {
+      return res.status(400).json({ error: 'عذراً، الشعبة ممتلئة ولا توجد مقاعد متاحة' });
+    }
+
+    // Check prerequisite eligibility
+    const passedCodes = student.courses.filter(c => c.status === 'ناجح').map(c => c.code);
+    const override = studentOverridesStore.find(o => o.studentSeat === String(studentSeat) && o.courseCode === slot.courseCode);
+
+    if (override?.action === 'lock') {
+      return res.status(403).json({ error: `هذا المقرر محظور عليك: ${override.reason}` });
+    }
+
+    if (!override || override.action !== 'unlock') {
+      const { eligible, missingPrereqs } = checkEligibility(slot.courseCode, passedCodes);
+      if (!eligible) {
+        const missingNames = missingPrereqs.map(code => {
+          const c = CURRICULUM_DATABASE.find(x => x.code === code);
+          return `${code} (${c?.nameAr || code})`;
+        }).join('، ');
+        return res.status(400).json({ error: `لا يمكن التسجيل في هذا المقرر. المتطلبات السابقة غير مكتملة: ${missingNames}` });
+      }
+    }
+
+    // Check already registered this slot
+    const alreadyThisSlot = registrationsStore.find(r => r.studentSeat === String(studentSeat) && r.slotId === slotId);
+    if (alreadyThisSlot) return res.status(400).json({ error: 'أنت مسجل بالفعل في هذه الشعبة' });
+
+    // Check already registered same course
+    const alreadySameCourse = registrationsStore.find(r => r.studentSeat === String(studentSeat) && r.courseCode === slot.courseCode && r.type === slot.type);
+    if (alreadySameCourse) return res.status(400).json({ error: `أنت مسجل بالفعل في شعبة أخرى لمقرر ${slot.courseName}` });
+
+    // Register
+    slot.enrolledCount += 1;
+    const reg: CourseRegistration = {
+      id: `reg-${Date.now()}`,
+      studentSeat: student.seatNumber,
+      studentName: student.name,
+      studentLevel: student.level,
+      studentDepartment: student.department,
+      slotId: slot.id,
+      courseCode: slot.courseCode,
+      courseName: slot.courseName,
+      type: slot.type,
+      instructor: slot.instructor,
+      hallNumber: slot.hallNumber,
+      day: slot.day,
+      time: slot.time,
+      registeredAt: new Date().toLocaleString('ar-EG')
+    };
+    registrationsStore.push(reg);
+
+    return res.status(201).json({
+      success: true,
+      message: `تم تسجيلك بنجاح في ${slot.courseName} - ${slot.type}`,
+      registration: reg,
+      remainingSeats: slot.capacity - slot.enrolledCount
+    });
+  });

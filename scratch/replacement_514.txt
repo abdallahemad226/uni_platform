@@ -1,0 +1,20 @@
+    const result = eligibleList.map(item => {
+      const override = overrides.find(o => o.courseCode === item.course.code);
+      let eligible = item.eligible;
+      let lockReason: string | null = null;
+      if (override?.action === 'lock') { eligible = false; lockReason = override.reason; }
+      else if (override?.action === 'unlock') { eligible = true; }
+      return {
+        code: item.course.code,
+        nameAr: item.course.nameAr,
+        nameEn: item.course.nameEn,
+        credits: item.course.credits,
+        type: item.course.type,
+        eligible,
+        finalEligible: eligible,
+        missingPrereqs: item.missingPrereqs,
+        lockReason,
+        hasOverride: !!override,
+        override: override ? { action: override.action, reason: override.reason } : null
+      };
+    });

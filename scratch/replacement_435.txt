@@ -1,0 +1,277 @@
+// Which year levels have registration open (admin controls this)
+let registrationStatus: Record<string, boolean> = {
+  'الفرقة الأولى': false,
+  'الفرقة الثانية': false,
+  'الفرقة الثالثة': false,
+  'الفرقة الرابعة': false
+};
+
+// Available course slots (admin populates these)
+let courseSlotsStore: CourseSlot[] = [];
+
+// Student registrations
+let registrationsStore: CourseRegistration[] = [];
+
+// =====================================================================
+// CURRICULUM DATABASE — from Faculty of Computers & Information Bylaws
+// Source: اللائحة الداخلية لمرحلة البكالوريوس بنظام الساعات المعتمدة
+// =====================================================================
+
+interface CurriculumCourse {
+  code: string;
+  nameEn: string;
+  nameAr: string;
+  credits: number;
+  teachingHoursLecture: number;  // L = lecture hours/week
+  teachingHoursPractical: number; // P = practical/lab hours/week
+  prerequisites: string[];        // list of course codes required before
+  type: 'إجباري' | 'اختياري';
+  departments: ('CS' | 'IS' | 'IT' | 'AI')[];  // which departments take this
+  semester: number;   // suggested semester (1-8)
+  level: 1 | 2 | 3 | 4;  // academic year
+  category: 'متطلبات عامة' | 'متطلبات كلية - رياضيات وعلوم' | 'متطلبات كلية - علوم حاسب' | 'متطلبات تخصص' | 'تدريب' | 'مشروع تخرج';
+}
+
+// Full curriculum from the bylaws (Appendix 2 — Suggested Study Plan)
+const CURRICULUM_DATABASE: CurriculumCourse[] = [
+  // =========================================================
+  // LEVEL 1 — SEMESTER 1 (مشترك لكل الأقسام)
+  // =========================================================
+  { code: 'HU111', nameEn: 'English Language I', nameAr: 'اللغة الإنجليزية I', credits: 2, teachingHoursLecture: 2, teachingHoursPractical: 0, prerequisites: [], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 1, level: 1, category: 'متطلبات عامة' },
+  { code: 'HU141', nameEn: 'Computers and Ethics', nameAr: 'الحاسبات والأخلاقيات', credits: 2, teachingHoursLecture: 2, teachingHoursPractical: 0, prerequisites: [], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 1, level: 1, category: 'متطلبات عامة' },
+  { code: 'MA111', nameEn: 'Math I', nameAr: 'رياضيات I', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: [], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 1, level: 1, category: 'متطلبات كلية - رياضيات وعلوم' },
+  { code: 'EE101', nameEn: 'Electronics', nameAr: 'إلكترونيات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: [], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 1, level: 1, category: 'متطلبات كلية - رياضيات وعلوم' },
+  { code: 'CS121', nameEn: 'Computer Science Fundamentals', nameAr: 'أساسيات علوم الحاسب', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: [], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 1, level: 1, category: 'متطلبات كلية - علوم حاسب' },
+  { code: 'HU151', nameEn: 'History of Computing', nameAr: 'تاريخ الحوسبة', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 1, level: 1, category: 'متطلبات عامة' },
+
+  // =========================================================
+  // LEVEL 1 — SEMESTER 2
+  // =========================================================
+  { code: 'HU132', nameEn: 'Technical Writing', nameAr: 'الكتابة التقنية', credits: 2, teachingHoursLecture: 2, teachingHoursPractical: 0, prerequisites: [], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 2, level: 1, category: 'متطلبات عامة' },
+  { code: 'CS141', nameEn: 'Programming Fundamentals', nameAr: 'أساسيات البرمجة', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: [], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 2, level: 1, category: 'متطلبات كلية - علوم حاسب' },
+  { code: 'MA112', nameEn: 'Discrete Structures', nameAr: 'الهياكل المتقطعة', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: [], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 2, level: 1, category: 'متطلبات كلية - رياضيات وعلوم' },
+  { code: 'MA121', nameEn: 'Probability and Statistics I', nameAr: 'الاحتمالات والإحصاء I', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['MA111'], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 2, level: 1, category: 'متطلبات كلية - رياضيات وعلوم' },
+  { code: 'MA113', nameEn: 'Math II', nameAr: 'رياضيات II', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['MA111'], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 2, level: 1, category: 'متطلبات كلية - رياضيات وعلوم' },
+  { code: 'HU112', nameEn: 'English Language II', nameAr: 'اللغة الإنجليزية II', credits: 2, teachingHoursLecture: 2, teachingHoursPractical: 0, prerequisites: ['HU111'], type: 'اختياري', departments: ['CS','IS','IT','AI'], semester: 2, level: 1, category: 'متطلبات عامة' },
+  { code: 'HU122', nameEn: 'Marketing and Sales', nameAr: 'التسويق والمبيعات', credits: 2, teachingHoursLecture: 2, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['CS','IS','IT','AI'], semester: 2, level: 1, category: 'متطلبات عامة' },
+  { code: 'HU153', nameEn: 'Scientific Thinking', nameAr: 'التفكير العلمي', credits: 2, teachingHoursLecture: 2, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['CS','IS','IT','AI'], semester: 2, level: 1, category: 'متطلبات عامة' },
+
+  // =========================================================
+  // LEVEL 2 — SEMESTER 3 (مشترك)
+  // =========================================================
+  { code: 'MA222', nameEn: 'Probability and Statistics II', nameAr: 'الاحتمالات والإحصاء II', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['MA121'], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 3, level: 2, category: 'متطلبات كلية - رياضيات وعلوم' },
+  { code: 'CS241', nameEn: 'Object-Oriented Programming', nameAr: 'البرمجة كائنية التوجه', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS141'], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 3, level: 2, category: 'متطلبات كلية - علوم حاسب' },
+  { code: 'IT231', nameEn: 'Computer Networks I', nameAr: 'شبكات الحاسب I', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS121'], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 3, level: 2, category: 'متطلبات كلية - علوم حاسب' },
+  { code: 'MA231', nameEn: 'Operations Research', nameAr: 'بحوث العمليات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['MA113'], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 3, level: 2, category: 'متطلبات كلية - رياضيات وعلوم' },
+  { code: 'EE201', nameEn: 'Logic Design', nameAr: 'التصميم المنطقي', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['EE101'], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 3, level: 2, category: 'متطلبات كلية - علوم حاسب' },
+  { code: 'IS221', nameEn: 'Project Management', nameAr: 'إدارة المشروعات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS121'], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 3, level: 2, category: 'متطلبات كلية - علوم حاسب' },
+
+  // =========================================================
+  // LEVEL 2 — SEMESTER 4 (مشترك)
+  // =========================================================
+  { code: 'IS212', nameEn: 'Web Technology', nameAr: 'تكنولوجيا الويب', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS241'], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 4, level: 2, category: 'متطلبات كلية - علوم حاسب' },
+  { code: 'CS211', nameEn: 'Data Structures I', nameAr: 'هياكل البيانات I', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS241'], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 4, level: 2, category: 'متطلبات كلية - علوم حاسب' },
+  { code: 'CS291', nameEn: 'Modeling and Simulation', nameAr: 'النمذجة والمحاكاة', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS141'], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 4, level: 2, category: 'متطلبات كلية - علوم حاسب' },
+  { code: 'PH201', nameEn: 'Physics', nameAr: 'فيزياء', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: [], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 4, level: 2, category: 'متطلبات كلية - رياضيات وعلوم' },
+  { code: 'IS211', nameEn: 'Database', nameAr: 'قواعد البيانات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: [], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 4, level: 2, category: 'متطلبات كلية - علوم حاسب' },
+  { code: 'CS242', nameEn: 'Parallel Programming', nameAr: 'البرمجة المتوازية', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS241'], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 4, level: 2, category: 'متطلبات كلية - علوم حاسب' },
+
+  // =========================================================
+  // LEVEL 3 — CS — SEMESTER 5
+  // =========================================================
+  { code: 'CS312', nameEn: 'Data Structures II', nameAr: 'هياكل البيانات II', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: ['CS211'], type: 'إجباري', departments: ['CS'], semester: 5, level: 3, category: 'متطلبات تخصص' },
+  { code: 'CS352', nameEn: 'Image Processing', nameAr: 'معالجة الصور', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS241'], type: 'إجباري', departments: ['CS'], semester: 5, level: 3, category: 'متطلبات تخصص' },
+  { code: 'CS391', nameEn: 'Software Engineering', nameAr: 'هندسة البرمجيات', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'إجباري', departments: ['CS'], semester: 5, level: 3, category: 'متطلبات تخصص' },
+  { code: 'AI301', nameEn: 'Artificial Intelligence', nameAr: 'الذكاء الاصطناعي', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS211'], type: 'إجباري', departments: ['CS'], semester: 5, level: 3, category: 'متطلبات تخصص' },
+  { code: 'CS321', nameEn: 'Operating Systems I', nameAr: 'نظم التشغيل I', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS121'], type: 'إجباري', departments: ['CS'], semester: 5, level: 3, category: 'متطلبات تخصص' },
+  { code: 'CS311', nameEn: 'Algorithms Analysis and Design', nameAr: 'تحليل وتصميم الخوارزميات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS211'], type: 'إجباري', departments: ['CS'], semester: 5, level: 3, category: 'متطلبات تخصص' },
+
+  // =========================================================
+  // LEVEL 3 — CS — SEMESTER 6
+  // =========================================================
+  { code: 'CS341', nameEn: 'Concepts of Programming Languages', nameAr: 'مفاهيم لغات البرمجة', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS312'], type: 'إجباري', departments: ['CS'], semester: 6, level: 3, category: 'متطلبات تخصص' },
+  { code: 'CS351', nameEn: 'Computer Graphics I', nameAr: 'رسوميات الحاسب I', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['MA113'], type: 'إجباري', departments: ['CS'], semester: 6, level: 3, category: 'متطلبات تخصص' },
+  { code: 'CS331', nameEn: 'Visual Programming', nameAr: 'البرمجة المرئية', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: ['CS211'], type: 'إجباري', departments: ['CS'], semester: 6, level: 3, category: 'متطلبات تخصص' },
+  { code: 'CS322', nameEn: 'Computer Architecture and Organization', nameAr: 'معمارية وتنظيم الحاسبات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['EE201'], type: 'إجباري', departments: ['CS'], semester: 6, level: 3, category: 'متطلبات تخصص' },
+  { code: 'IT302', nameEn: 'Cryptography', nameAr: 'التشفير', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: ['MA113'], type: 'إجباري', departments: ['CS'], semester: 6, level: 3, category: 'متطلبات تخصص' },
+  { code: 'TR301', nameEn: 'Field Training', nameAr: 'التدريب الميداني', credits: 3, teachingHoursLecture: 0, teachingHoursPractical: 0, prerequisites: [], type: 'إجباري', departments: ['CS','IS','IT','AI'], semester: 6, level: 3, category: 'تدريب' },
+
+  // =========================================================
+  // LEVEL 4 — CS — SEMESTER 7
+  // =========================================================
+  { code: 'AI413', nameEn: 'Machine Learning', nameAr: 'تعلم الآلة', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['MA113','MA222'], type: 'إجباري', departments: ['CS'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'CS401', nameEn: 'Computation Theory', nameAr: 'نظرية الحوسبة', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: ['MA112'], type: 'إجباري', departments: ['CS'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'CS442', nameEn: 'Embedded Systems Programming', nameAr: 'برمجة الأنظمة المدمجة', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['CS'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'CS443', nameEn: 'Mobile Programming', nameAr: 'برمجة الهواتف المحمولة', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['CS'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'CS464', nameEn: 'Knowledge Discovery', nameAr: 'اكتشاف المعرفة', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['CS'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'CS481', nameEn: 'Graduation Project (Part 1)', nameAr: 'مشروع التخرج (جزء أول)', credits: 3, teachingHoursLecture: 0, teachingHoursPractical: 3, prerequisites: [], type: 'إجباري', departments: ['CS'], semester: 7, level: 4, category: 'مشروع تخرج' },
+
+  // =========================================================
+  // LEVEL 4 — CS — SEMESTER 8
+  // =========================================================
+  { code: 'CS441', nameEn: 'Compiler Construction', nameAr: 'بناء المترجمات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS322'], type: 'إجباري', departments: ['CS'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'CS453', nameEn: 'Computer Vision', nameAr: 'رؤية الحاسب', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS351','CS352'], type: 'إجباري', departments: ['CS'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'CS431', nameEn: 'Big Data Analysis', nameAr: 'تحليل البيانات الضخمة', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['CS'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'AI401', nameEn: 'Natural Language Processing', nameAr: 'معالجة اللغات الطبيعية', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['CS'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'AI435', nameEn: 'Fuzzy Computing', nameAr: 'الحوسبة الضبابية', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['CS'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+
+  // =========================================================
+  // LEVEL 3 — IS — SEMESTER 5
+  // =========================================================
+  { code: 'IS331', nameEn: 'Analysis and Design of Information Systems', nameAr: 'تحليل وتصميم نظم المعلومات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS211'], type: 'إجباري', departments: ['IS'], semester: 5, level: 3, category: 'متطلبات تخصص' },
+  { code: 'IS312', nameEn: 'Data Warehousing', nameAr: 'مستودعات البيانات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IS211'], type: 'إجباري', departments: ['IS'], semester: 5, level: 3, category: 'متطلبات تخصص' },
+  { code: 'IS313', nameEn: 'File Management and Processing', nameAr: 'إدارة الملفات ومعالجتها', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IS211'], type: 'إجباري', departments: ['IS'], semester: 5, level: 3, category: 'متطلبات تخصص' },
+
+  // =========================================================
+  // LEVEL 3 — IS — SEMESTER 6
+  // =========================================================
+  { code: 'IS342', nameEn: 'Business Process Management', nameAr: 'إدارة العمليات التجارية', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IS331'], type: 'إجباري', departments: ['IS'], semester: 6, level: 3, category: 'متطلبات تخصص' },
+  { code: 'IS341', nameEn: 'Information Retrieval', nameAr: 'استرجاع المعلومات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IS211'], type: 'إجباري', departments: ['IS'], semester: 6, level: 3, category: 'متطلبات تخصص' },
+  { code: 'IS314', nameEn: 'Web-based Information Systems Development', nameAr: 'تطوير نظم المعلومات المبنية على الويب', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IS212'], type: 'إجباري', departments: ['IS'], semester: 6, level: 3, category: 'متطلبات تخصص' },
+  { code: 'IS311', nameEn: 'Database Management Systems', nameAr: 'نظم إدارة قواعد البيانات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IS211'], type: 'إجباري', departments: ['IS'], semester: 6, level: 3, category: 'متطلبات تخصص' },
+
+  // =========================================================
+  // LEVEL 4 — IS — SEMESTER 7
+  // =========================================================
+  { code: 'IS411', nameEn: 'Data Mining', nameAr: 'تنقيب البيانات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IS311'], type: 'إجباري', departments: ['IS'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IS415', nameEn: 'Mobile Computing Applications', nameAr: 'تطبيقات الحوسبة المتنقلة', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['IS'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IS443', nameEn: 'Information Systems Security and Risk Management', nameAr: 'أمن نظم المعلومات وإدارة المخاطر', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['IS'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IS414', nameEn: 'Distributed Database', nameAr: 'قواعد البيانات الموزعة', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['IS'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IS451', nameEn: 'Graduation Project (Part 1)', nameAr: 'مشروع التخرج (جزء أول)', credits: 3, teachingHoursLecture: 0, teachingHoursPractical: 3, prerequisites: [], type: 'إجباري', departments: ['IS'], semester: 7, level: 4, category: 'مشروع تخرج' },
+
+  // =========================================================
+  // LEVEL 4 — IS — SEMESTER 8
+  // =========================================================
+  { code: 'IS431', nameEn: 'Managing and Modeling Big Data', nameAr: 'إدارة ونمذجة البيانات الضخمة', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IS411'], type: 'إجباري', departments: ['IS'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IS412', nameEn: 'Service-Oriented Architecture', nameAr: 'المعمارية الموجهة بالخدمات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IS314'], type: 'إجباري', departments: ['IS'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IS442', nameEn: 'Information Systems Quality Assurance', nameAr: 'ضمان جودة نظم المعلومات', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['IS'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IS445', nameEn: 'Enterprise Information Systems', nameAr: 'نظم المعلومات المؤسسية', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['IS'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IS447', nameEn: 'E-Business', nameAr: 'الأعمال الإلكترونية', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['IS'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+
+  // =========================================================
+  // LEVEL 3 — IT — SEMESTER 5
+  // =========================================================
+  { code: 'IT301', nameEn: 'Micro Controllers', nameAr: 'المتحكمات الدقيقة', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['EE201'], type: 'إجباري', departments: ['IT'], semester: 5, level: 3, category: 'متطلبات تخصص' },
+  { code: 'IT341', nameEn: 'Signals and Systems', nameAr: 'الإشارات والأنظمة', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['MA121'], type: 'إجباري', departments: ['IT'], semester: 5, level: 3, category: 'متطلبات تخصص' },
+  { code: 'CS362', nameEn: 'Pattern Recognition I', nameAr: 'التعرف على الأنماط I', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS211'], type: 'إجباري', departments: ['IT'], semester: 5, level: 3, category: 'متطلبات تخصص' },
+
+  // =========================================================
+  // LEVEL 3 — IT — SEMESTER 6
+  // =========================================================
+  { code: 'IT331', nameEn: 'Computer Networks II', nameAr: 'شبكات الحاسب II', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IT231'], type: 'إجباري', departments: ['IT'], semester: 6, level: 3, category: 'متطلبات تخصص' },
+  { code: 'IT332', nameEn: 'Data Communication', nameAr: 'اتصالات البيانات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IT231'], type: 'إجباري', departments: ['IT'], semester: 6, level: 3, category: 'متطلبات تخصص' },
+  { code: 'IT342', nameEn: 'Digital Signal Processing', nameAr: 'معالجة الإشارات الرقمية', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IT341'], type: 'إجباري', departments: ['IT'], semester: 6, level: 3, category: 'متطلبات تخصص' },
+
+  // =========================================================
+  // LEVEL 4 — IT — SEMESTER 7
+  // =========================================================
+  { code: 'IT411', nameEn: 'Information and Computer Networks Security', nameAr: 'أمن المعلومات وشبكات الحاسب', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IT331'], type: 'إجباري', departments: ['IT'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IT421', nameEn: 'Internet Programming and Protocols', nameAr: 'برمجة الإنترنت والبروتوكولات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IT231'], type: 'إجباري', departments: ['IT'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IT443', nameEn: 'Embedded Systems', nameAr: 'الأنظمة المدمجة', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['IT'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IT472', nameEn: 'Concurrency and Parallel Computing', nameAr: 'الحوسبة المتزامنة والمتوازية', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: ['CS322'], type: 'اختياري', departments: ['IT'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IT461', nameEn: 'Graduation Project (Part 1)', nameAr: 'مشروع التخرج (جزء أول)', credits: 3, teachingHoursLecture: 0, teachingHoursPractical: 3, prerequisites: [], type: 'إجباري', departments: ['IT'], semester: 7, level: 4, category: 'مشروع تخرج' },
+
+  // =========================================================
+  // LEVEL 4 — IT — SEMESTER 8
+  // =========================================================
+  { code: 'IT431', nameEn: 'Communication Technology', nameAr: 'تكنولوجيا الاتصالات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IT332'], type: 'إجباري', departments: ['IT'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IT441', nameEn: 'Multimedia Mining', nameAr: 'تنقيب الوسائط المتعددة', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['IT342'], type: 'إجباري', departments: ['IT'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IT442', nameEn: 'Robotics', nameAr: 'علم الروبوت', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['IT'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'CS456', nameEn: 'Digital Video Processing', nameAr: 'معالجة الفيديو الرقمي', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['IT'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IT412', nameEn: 'Cyber Security', nameAr: 'الأمن السيبراني', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['IT'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'IT433', nameEn: 'Cloud Computing Networks', nameAr: 'شبكات الحوسبة السحابية', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['IT'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+
+  // =========================================================
+  // LEVEL 3 — AI — SEMESTER 5
+  // =========================================================
+  { code: 'MA301', nameEn: 'Probabilistic Reasoning', nameAr: 'التفكير الاحتمالي', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['MA222'], type: 'إجباري', departments: ['AI'], semester: 5, level: 3, category: 'متطلبات تخصص' },
+  { code: 'AI321', nameEn: 'Computational Intelligence', nameAr: 'الذكاء الحسابي', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['CS211'], type: 'إجباري', departments: ['AI'], semester: 5, level: 3, category: 'متطلبات تخصص' },
+  { code: 'AI312', nameEn: 'Data Science', nameAr: 'علم البيانات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['MA222'], type: 'إجباري', departments: ['AI'], semester: 5, level: 3, category: 'متطلبات تخصص' },
+
+  // =========================================================
+  // LEVEL 3 — AI — SEMESTER 6
+  // =========================================================
+  { code: 'AI311', nameEn: 'Data Analytics', nameAr: 'تحليل البيانات', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['AI312'], type: 'إجباري', departments: ['AI'], semester: 6, level: 3, category: 'متطلبات تخصص' },
+  { code: 'MA302', nameEn: 'Linear and Integer Programming', nameAr: 'البرمجة الخطية والصحيحة', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['MA231','MA113'], type: 'إجباري', departments: ['AI'], semester: 6, level: 3, category: 'متطلبات تخصص' },
+  { code: 'AI313', nameEn: 'Neural Networks', nameAr: 'الشبكات العصبية', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['AI301'], type: 'إجباري', departments: ['AI'], semester: 6, level: 3, category: 'متطلبات تخصص' },
+
+  // =========================================================
+  // LEVEL 4 — AI — SEMESTER 7
+  // =========================================================
+  { code: 'AI421', nameEn: 'Semantic Web and Ontology', nameAr: 'الويب الدلالي والأونطولوجيا', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['AI301','IS212'], type: 'إجباري', departments: ['AI'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'AI425', nameEn: 'Expert Systems', nameAr: 'الأنظمة الخبيرة', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['AI'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'AI412', nameEn: 'Data Visualization', nameAr: 'تصور البيانات', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: ['MA222','MA112'], type: 'اختياري', departments: ['AI'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'AI431', nameEn: 'AI Project Management', nameAr: 'إدارة مشروعات الذكاء الاصطناعي', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['AI'], semester: 7, level: 4, category: 'متطلبات تخصص' },
+  { code: 'AI434', nameEn: 'Graduation Project (Part 1)', nameAr: 'مشروع التخرج (جزء أول)', credits: 3, teachingHoursLecture: 0, teachingHoursPractical: 3, prerequisites: [], type: 'إجباري', departments: ['AI'], semester: 7, level: 4, category: 'مشروع تخرج' },
+
+  // =========================================================
+  // LEVEL 4 — AI — SEMESTER 8
+  // =========================================================
+  { code: 'AI411', nameEn: 'Deep Learning', nameAr: 'التعلم العميق', credits: 3, teachingHoursLecture: 2, teachingHoursPractical: 2, prerequisites: ['AI312','AI301'], type: 'إجباري', departments: ['AI'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'AI435', nameEn: 'Fuzzy Computing', nameAr: 'الحوسبة الضبابية', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: ['MA121','MA113'], type: 'إجباري', departments: ['AI'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'AI426', nameEn: 'Evolutionary Computing', nameAr: 'الحوسبة التطورية', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['AI'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+  { code: 'AI432', nameEn: 'Internet of Things', nameAr: 'إنترنت الأشياء', credits: 3, teachingHoursLecture: 3, teachingHoursPractical: 0, prerequisites: [], type: 'اختياري', departments: ['AI'], semester: 8, level: 4, category: 'متطلبات تخصص' },
+];
+
+// Map department names to codes
+function getDeptCode(department: string): 'CS' | 'IS' | 'IT' | 'AI' | null {
+  if (department.includes('علوم الحاسب') || department.includes('CS')) return 'CS';
+  if (department.includes('نظم المعلومات') || department.includes('IS')) return 'IS';
+  if (department.includes('تكنولوجيا المعلومات') || department.includes('IT')) return 'IT';
+  if (department.includes('الذكاء الاصطناعي') || department.includes('AI')) return 'AI';
+  return null; // General/first year — no specialization yet
+}
+
+// Map level string to number
+function getLevelNumber(level: string): 1 | 2 | 3 | 4 {
+  if (level.includes('الأولى') || level.includes('أولى')) return 1;
+  if (level.includes('الثانية') || level.includes('ثانية')) return 2;
+  if (level.includes('الثالثة') || level.includes('ثالثة')) return 3;
+  if (level.includes('الرابعة') || level.includes('رابعة')) return 4;
+  return 1;
+}
+
+// Check if a student is eligible for a course based on their passed courses
+function checkEligibility(courseCode: string, passedCourses: string[]): { eligible: boolean; missingPrereqs: string[] } {
+  const course = CURRICULUM_DATABASE.find(c => c.code === courseCode);
+  if (!course) return { eligible: false, missingPrereqs: [] };
+  const missing = course.prerequisites.filter(p => !passedCourses.includes(p));
+  return { eligible: missing.length === 0, missingPrereqs: missing };
+}
+
+// Get eligible courses for a student given their level, dept, semester, passed courses
+function getEligibleCourses(
+  levelNum: 1 | 2 | 3 | 4,
+  semester: 1 | 2,  // 1 = odd (1,3,5,7), 2 = even (2,4,6,8)
+  deptCode: 'CS' | 'IS' | 'IT' | 'AI' | null,
+  passedCourses: string[]
+): { course: CurriculumCourse; eligible: boolean; missingPrereqs: string[] }[] {
+  // Calculate actual semester number
+  const semesterNum = (levelNum - 1) * 2 + semester;
+
+  // Get courses for this semester
+  const semCourses = CURRICULUM_DATABASE.filter(c => {
+    if (c.semester !== semesterNum) return false;
+    // Filter by department
+    if (levelNum >= 3 && deptCode) {
+      return c.departments.includes(deptCode);
+    }
+    // Levels 1 & 2: all departments (common courses)
+    return c.departments.length === 4 || levelNum <= 2;
+  });
+
+  return semCourses.map(course => {
+    const { eligible, missingPrereqs } = checkEligibility(course.code, passedCourses);
+    return { course, eligible, missingPrereqs };
+  });
+}
+
+// Student override — admin can manually lock/unlock specific courses per student
+interface StudentCourseOverride {
+  studentSeat: string;
+  courseCode: string;
+  action: 'lock' | 'unlock';
+  reason: string;
+  overriddenAt: string;
+}
+let studentOverridesStore: StudentCourseOverride[] = [];
